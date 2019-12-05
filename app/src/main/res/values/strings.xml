@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Homework2</string>
+    <string name="title_activity_maps">Map</string>
+    <string name="last_known_loc_msg">Last location:</string>
+    <string name="myFileprovider">com.jose.homework2.fileprovider</string>
+
+</resources>
