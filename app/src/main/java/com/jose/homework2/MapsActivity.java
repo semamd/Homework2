@@ -4,10 +4,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.fragment.app.FragmentActivity;
 
 import android.Manifest;
-import android.annotation.SuppressLint;
 import android.content.pm.PackageManager;
-import android.graphics.Bitmap;
-import android.graphics.Color;
 import android.location.Location;
 import android.os.Bundle;
 import android.util.Log;
@@ -17,46 +14,39 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.google.android.gms.location.FusedLocationProviderClient;
-import com.google.android.gms.location.LocationCallback;
-import com.google.android.gms.location.LocationRequest;
-import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.BitmapDescriptorFactory;
-import com.google.android.gms.maps.model.CameraPosition;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
-import com.google.android.gms.maps.model.PolylineOptions;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
-import org.w3c.dom.Text;
-
-import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.lang.reflect.Array;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
 
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback, GoogleMap.OnMapLoadedCallback, GoogleMap.OnMarkerClickListener, GoogleMap.OnMapLongClickListener {
-    private final String TASKS_JSON_FILE = "tasks.json";
-    List<Marker> markerList;
+    private final String LOCATIONS_JSON_FILE = "locations.json";
+    private List<Marker> markerList;
     private static final int MY_PERMISSION_REQUEST_ACCESS_FINE_LOCATION = 101;
     private GoogleMap mMap;
     private FusedLocationProviderClient fusedLocationClient;
-    Marker gpsMarker = null;
-
+    private Marker gpsMarker = null;
+    private ArrayList<LatLng> positionList = new ArrayList<LatLng>();
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -68,9 +58,8 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
-        markerList = restoreFromJson();
 
-        if (!markerList.isEmpty() && markerList.size() > 0){
+        if (restoreFromJson() != null && !restoreFromJson().isEmpty()){
             markerList = restoreFromJson();
         }
         else {
@@ -136,6 +125,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     public void onMapLongClick(LatLng latLng) {
         Marker marker = mMap.addMarker(new MarkerOptions().position(new LatLng(latLng.latitude, latLng.longitude)).alpha(0.8f).title(String.format("Position:(%.2f, %.2f)",latLng.latitude,latLng.longitude)));
         markerList.add(marker);
+        positionList.add(marker.getPosition());
     }
 
 
@@ -170,12 +160,12 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
     }
 
-    private void saveToJson(){
+    private void saveToJson(List<LatLng> positionList){
         Gson gson = new Gson();
-        String listJson = gson.toJson(markerList);
+        String listJson = gson.toJson(positionList);
         FileOutputStream outputStream;
         try{
-            outputStream = openFileOutput(TASKS_JSON_FILE,MODE_PRIVATE);
+            outputStream = openFileOutput(LOCATIONS_JSON_FILE,MODE_PRIVATE);
             FileWriter writer = new FileWriter(outputStream.getFD());
             writer.write(listJson);
             writer.close();
@@ -195,7 +185,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         String readJson;
 
         try{
-            inputStream = openFileInput(TASKS_JSON_FILE);
+            inputStream = openFileInput(LOCATIONS_JSON_FILE);
             FileReader reader = new FileReader(inputStream.getFD());
             char[] buf = new char[DEFAULT_BUFFER_SIZE];
             int n;
@@ -207,13 +197,16 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             }
             reader.close();
             readJson = builder.toString();
-            Type collectionType = new TypeToken<ArrayList<Marker>>(){
+            Type collectionType = new TypeToken<List<LatLng>>(){
             }.getType();
-            List<Marker> o = gson.fromJson(readJson, collectionType);
+            List<LatLng> o = gson.fromJson(readJson, collectionType);
             if(o != null){
                 markerList.clear();
-                for(Marker marker: o){
+                for(LatLng coordinates: o){
+                    MarkerOptions mapMarker = new MarkerOptions().position(coordinates);
+                    Marker marker = mMap.addMarker(mapMarker);
                     markerList.add(marker);
+
                 }
             }
         }
@@ -229,7 +222,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     @Override
     protected void onDestroy(){
         super.onDestroy();
-        saveToJson();
+        saveToJson(positionList);
     }
 
 }
