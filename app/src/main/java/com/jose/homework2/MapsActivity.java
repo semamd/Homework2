@@ -4,11 +4,18 @@ import androidx.core.app.ActivityCompat;
 import androidx.fragment.app.FragmentActivity;
 
 import android.Manifest;
+import android.content.Context;
 import android.content.pm.PackageManager;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.location.Location;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
+import android.view.animation.Animation;
+import android.view.animation.AnimationUtils;
 import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -34,22 +41,34 @@ import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.lang.reflect.Array;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MapsActivity extends FragmentActivity implements OnMapReadyCallback, GoogleMap.OnMapLoadedCallback, GoogleMap.OnMarkerClickListener, GoogleMap.OnMapLongClickListener {
-    private final String LOCATIONS_JSON_FILE = "locations.json";
-    private List<Marker> markerList;
+public class MapsActivity extends FragmentActivity implements OnMapReadyCallback, GoogleMap.OnMapLoadedCallback, GoogleMap.OnMarkerClickListener, GoogleMap.OnMapLongClickListener, SensorEventListener {
+    private final String LOCATIONS_JSON_FILE = "coordinates.json";
+    private static List<Marker> markerList = null;
     private static final int MY_PERMISSION_REQUEST_ACCESS_FINE_LOCATION = 101;
-    private GoogleMap mMap;
+    private static GoogleMap mMap;
     private FusedLocationProviderClient fusedLocationClient;
     private Marker gpsMarker = null;
     private ArrayList<LatLng> positionList = new ArrayList<LatLng>();
+    public SensorManager mSensorManager;
+    static List<Sensor> SensorList;
+    static final public String SENSOR_TYPE = "sensorType";
+    long lastUpdate = -1;
+    Sensor mSensor;
+
+
+
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        mSensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        SensorList = mSensorManager.getSensorList(Sensor.TYPE_ALL);
+        mSensor = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+
         setContentView(R.layout.activity_main);
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
 
@@ -58,13 +77,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
-
-        if (restoreFromJson() != null && !restoreFromJson().isEmpty()){
-            markerList = restoreFromJson();
-        }
-        else {
-            markerList = new ArrayList<>();
-        }
     }
 
 
@@ -83,6 +95,8 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         mMap.setOnMapLoadedCallback(this);
         mMap.setOnMarkerClickListener(this);
         mMap.setOnMapLongClickListener(this);
+        restoreFromJson();
+
     }
 
 
@@ -108,8 +122,11 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             @Override
             public void onSuccess(Location location) {
                 if(location != null && mMap != null){
-                    if(markerList.isEmpty() || markerList == null)
-                         mMap.addMarker(new MarkerOptions().position(new LatLng(location.getLatitude(), location.getLongitude())).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)).title(getString(R.string.last_known_loc_msg)));
+                    if(markerList.isEmpty()) {
+                        markerList = new ArrayList<Marker>();
+                        Marker marker = mMap.addMarker(new MarkerOptions().position(new LatLng(location.getLatitude(), location.getLongitude())).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)).title(getString(R.string.last_known_loc_msg)));
+                        positionList.add(marker.getPosition());
+                    }
                     else{
                         for(Marker mark: markerList){
                             mMap.addMarker(new MarkerOptions().position(mark.getPosition()).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)).title(mark.getTitle()));
@@ -131,8 +148,11 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
     @Override
     public boolean onMarkerClick(Marker marker) {
+        Animation fade_in = AnimationUtils.loadAnimation(this, R.anim.fade_in);
         ImageButton xbutton = findViewById(R.id.xbutton);
         ImageButton dotbutton = findViewById(R.id.dotbutton);
+        xbutton.startAnimation(fade_in);
+        dotbutton.startAnimation(fade_in);
         xbutton.setVisibility(View.VISIBLE);
         dotbutton.setVisibility(View.VISIBLE);
         return false;
@@ -140,17 +160,30 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     }
 
     public void dotButton(View view){
+        Animation fade_in = AnimationUtils.loadAnimation(this, R.anim.fade_in);
+
         TextView info = findViewById(R.id.sensor_text);
+        info.startAnimation(fade_in);
+        onResume();
         info.setVisibility(View.VISIBLE);
+
+
+
     }
 
     public void xButton(View view){
+        Animation fade_out = AnimationUtils.loadAnimation(this, R.anim.fade_out);
+
         ImageButton xbutton = findViewById(R.id.xbutton);
         ImageButton dotbutton = findViewById(R.id.dotbutton);
         TextView sensor_info = findViewById(R.id.sensor_text);
+        view.startAnimation(fade_out);
+        dotbutton.startAnimation(fade_out);
+        sensor_info.startAnimation(fade_out);
         xbutton.setVisibility(View.INVISIBLE);
         dotbutton.setVisibility(View.INVISIBLE);
         sensor_info.setVisibility(View.INVISIBLE);
+        onPause();
     }
 
     public void clearButton(View view){
@@ -178,12 +211,11 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         }
     }
 
-    public List<Marker> restoreFromJson(){
+    public void restoreFromJson(){
         FileInputStream inputStream;
         int DEFAULT_BUFFER_SIZE = 10000;
         Gson gson = new Gson();
         String readJson;
-
         try{
             inputStream = openFileInput(LOCATIONS_JSON_FILE);
             FileReader reader = new FileReader(inputStream.getFD());
@@ -201,12 +233,11 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             }.getType();
             List<LatLng> o = gson.fromJson(readJson, collectionType);
             if(o != null){
-                markerList.clear();
+                markerList = new ArrayList<Marker>();
                 for(LatLng coordinates: o){
-                    MarkerOptions mapMarker = new MarkerOptions().position(coordinates);
+                    MarkerOptions mapMarker = new MarkerOptions().position(coordinates).icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)).alpha(0.8f).title(String.format("Position:(%.2f, %.2f)",coordinates.latitude,coordinates.longitude));
                     Marker marker = mMap.addMarker(mapMarker);
                     markerList.add(marker);
-
                 }
             }
         }
@@ -216,7 +247,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         catch (IOException e){
             e.printStackTrace();
         }
-        return markerList;
     }
 
     @Override
@@ -225,4 +255,44 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         saveToJson(positionList);
     }
 
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+        long timeMicro;
+        if(lastUpdate == -1){
+            lastUpdate = event.timestamp;
+            timeMicro = 0;
+        }
+        else{
+            timeMicro = (event.timestamp - lastUpdate)/1000L;
+            lastUpdate = event.timestamp;
+        }
+
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append("Time difference: ").append(timeMicro).append(" \u03bcs\n");
+        for (int i = 0; i<event.values.length; i++){
+            stringBuilder.append(String.format("Val[%d]=%.4f\n",i,event.values[i]));
+        }
+        TextView info = findViewById(R.id.sensor_text);
+
+        info.setText(mSensor.getName()+"\n"+stringBuilder.toString());
+    }
+
+    @Override
+    protected void onResume(){
+        super.onResume();
+        if(mSensor != null)
+            mSensorManager.registerListener(this,mSensor,100000);
+    }
+
+    @Override
+    protected void onPause(){
+        super.onPause();
+        if(mSensor != null)
+            mSensorManager.unregisterListener(this,mSensor);
+    }
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int i) {
+
+    }
 }
